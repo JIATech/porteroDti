@@ -24,14 +24,34 @@ export const RTCPeerConnection = function() {
   };
 };
 
-export const RTCIceCandidate = function(init) {
-  return {
-    ...init,
-    toJSON: () => init
-  };
+interface RTCIceCandidateInit {
+    candidate?: string;
+    sdpMid?: string | null;
+    sdpMLineIndex?: number | null;
+    usernameFragment?: string | null;
+}
+
+interface RTCIceCandidateInterface extends RTCIceCandidateInit {
+    toJSON(): RTCIceCandidateInit;
+}
+
+export const RTCIceCandidate = function(init: RTCIceCandidateInit): RTCIceCandidateInterface {
+    return {
+        ...init,
+        toJSON: () => init
+    };
 };
 
-export const RTCSessionDescription = function(init) {
+interface RTCSessionDescriptionInit {
+    type?: string;
+    sdp?: string;
+}
+
+interface RTCSessionDescriptionInterface extends RTCSessionDescriptionInit {
+    toJSON(): RTCSessionDescriptionInit;
+}
+
+export const RTCSessionDescription = function(init: RTCSessionDescriptionInit): RTCSessionDescriptionInterface {
   return {
     ...init,
     toJSON: () => init
@@ -53,7 +73,9 @@ export const mediaDevices = {
   }
 };
 
-export const RTCView = function({ style }) {
+import { StyleProp, ViewStyle } from 'react-native';
+
+export const RTCView = function({ style }: { style?: StyleProp<ViewStyle> }) {
   return {
     // Una versión mock del componente RTCView
     type: 'View',
