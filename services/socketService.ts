@@ -1,0 +1,146 @@
+import { io, Socket } from 'socket.io-client';
+import { Alert, Platform } from 'react-native';
+import { 
+  RTCSessionDescriptionInit,
+  RTCIceCandidateParam
+} from '../types/webrtc';
+
+// Server URL - Make configurable for different environments
+const SOCKET_SERVER_URL = 'http://192.168.2.194:3000';
+
+// Define socket event types for better type checking
+interface ServerToClientEvents {
+  notification: (message: string, department: string) => void;
+  responseReceived: (accepted: boolean, department: string) => void;
+  llamada_entrante: (callerDepartment: string) => void;
+  llamada_aceptada: (department: string) => void; // Add this line
+  llamada_rechazada: (department: string) => void; // Add this line
+  // WebRTC events
+  webrtc_offer: (offer: RTCSessionDescriptionInit, from: string) => void;
+  webrtc_answer: (answer: RTCSessionDescriptionInit, from: string) => void;
+  webrtc_ice_candidate: (candidate: RTCIceCandidateParam, from: string) => void;
+  webrtc_end_call: (from: string) => void;
+}
+
+interface ClientToServerEvents {
+  sendNotification: (department: string, message: string) => void;
+  responseToNotification: (department: string, accepted: boolean) => void;
+  registrar: (role: string) => void;
+  iniciar_llamada: (department: string) => void; // Add this line
+  aceptar_llamada: (department: string) => void;  // Updated to include department parameter
+  rechazar_llamada: (department: string) => void; // Updated to include department parameter
+  // WebRTC events
+  webrtc_offer: (offer: RTCSessionDescriptionInit, to: string) => void;
+  webrtc_answer: (answer: RTCSessionDescriptionInit, to: string) => void;
+  webrtc_ice_candidate: (candidate: RTCIceCandidateParam, to: string) => void;
+  webrtc_end_call: (to: string) => void;
+}
+
+// Create socket instance with improved configuration
+const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SOCKET_SERVER_URL, {
+  autoConnect: false, // Change to false to control connection timing
+  reconnection: true,
+  reconnectionAttempts: Infinity, // Keep trying to reconnect
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000, // Cap the delay at 5 seconds
+  timeout: 20000, // Longer timeout
+  transports: ['websocket', 'polling'], // Try WebSocket first, then polling
+});
+
+// Event handlers for connection status
+socket.on('connect', () => {
+  console.log('Connected to socket server');
+});
+
+socket.on('disconnect', (reason) => {
+  console.log(`Disconnected from socket server: ${reason}`);
+});
+
+socket.on('connect_error', (error) => {
+  console.error('Socket connection error:', error.message);
+  // Only show alert in development mode
+  if (__DEV__) {
+    console.log('Connection error details:', error);
+    // On Android simulator connecting to localhost, suggest using 10.0.2.2
+    if (Platform.OS === 'android' && SOCKET_SERVER_URL.includes('localhost')) {
+      console.log('On Android simulator, try using 10.0.2.2 instead of localhost');
+    }
+  }
+});
+
+// Add reconnect event handlers
+socket.io.on('reconnect_attempt', (attemptNumber) => {
+  console.log(`Socket reconnect attempt: ${attemptNumber}`);
+});
+
+socket.io.on('reconnect', (attemptNumber) => {
+  console.log(`Socket reconnected after ${attemptNumber} attempts`);
+});
+
+// Helper functions
+const isConnected = (): boolean => {
+  return socket.connected;
+};
+
+// Connect function with error handling
+const connect = (): Promise<boolean> => {
+  return new Promise((resolve) => {
+    if (socket.connected) {
+      resolve(true);
+      return;
+    }
+    
+    // Set a timeout to detect connection failure
+    const timeoutId = setTimeout(() => {
+      console.log('Connection attempt timed out');
+      resolve(false);
+    }, 5000);
+    
+    // Listen for connect event
+    const onConnect = () => {
+      clearTimeout(timeoutId);
+      socket.off('connect', onConnect);
+      socket.off('connect_error', onConnectError);
+      resolve(true);
+    };
+    
+    // Listen for connection error
+    const onConnectError = (err: Error) => {
+      console.log('Connection error in connect function:', err.message);
+    };
+    
+    socket.once('connect', onConnect);
+    socket.once('connect_error', onConnectError);
+    
+    // Initiate connection
+    socket.connect();
+  });
+};
+
+// Initialize connection when module is imported
+connect();
+
+const disconnect = (): void => {
+  if (socket.connected) {
+    socket.disconnect();
+  }
+};
+
+// Send notification to a department
+const sendNotification = (department: string, message: string): void => {
+  socket.emit('sendNotification', department, message);
+};
+
+// Send response to a notification
+const respondToNotification = (department: string, accepted: boolean): void => {
+  socket.emit('responseToNotification', department, accepted);
+};
+
+export {
+  socket,
+  isConnected,
+  connect,
+  disconnect,
+  sendNotification,
+  respondToNotification
+};
