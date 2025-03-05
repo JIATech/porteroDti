@@ -63,8 +63,217 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
     ],
+    iceCandidatePoolSize: 10,
   };
+
+  // End the current call with improved cleanup
+  // Define this function first to avoid reference issues
+  const endCallFunction = useCallback((sendEndEvent = true) => {
+    console.log('Ending call, sendEndEvent:', sendEndEvent);
+    
+    if (sendEndEvent && currentDepartment.current) {
+      socket.emit('webrtc_end_call', currentDepartment.current);
+    }
+    
+    // Close peer connection
+    if (peerConnection.current) {
+      peerConnection.current.close();
+      peerConnection.current = null;
+    }
+    
+    // Clean up remote stream
+    if (remoteStream) {
+      console.log('Cleaning up remote stream');
+      remoteStream.getTracks().forEach(track => {
+        track.stop();
+      });
+      setRemoteStream(null);
+    }
+    
+    // Reset call state
+    setCallStatus('idle');
+    currentDepartment.current = null;
+  }, [remoteStream]); // Add remoteStream as dependency
+
+  // Create RTCPeerConnection with improved error handling and logging
+  const createPeerConnection = useCallback(() => {
+    console.log('Creating peer connection');
+    
+    try {
+      // Verificar explícitamente la disponibilidad del stream local
+      if (!localStream) {
+        console.error('No local stream available when creating peer connection');
+        Alert.alert('Error', 'No se pudo iniciar la videollamada (sin acceso a cámara)');
+        return false;
+      }
+
+      console.log('Local stream is available with tracks:', 
+          localStream.getTracks().map(t => `${t.kind}:${t.enabled}`));
+      
+      // Close any existing connection first
+      if (peerConnection.current) {
+        console.log('Closing existing peer connection');
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
+      
+      // Create new peer connection and cast as our extended interface
+      const pc = new RTCPeerConnection(rtcConfiguration);
+      const extendedPc = pc as unknown as RTCPeerConnectionWithEvents;
+      peerConnection.current = extendedPc;
+      
+      console.log('RTCPeerConnection created with config:', rtcConfiguration);
+      
+      // Add local tracks to peer connection - Verificar cada track añadido
+      const tracks = localStream.getTracks();
+      console.log(`Adding ${tracks.length} local tracks to peer connection`);
+      
+      tracks.forEach(track => {
+        try {
+          if (extendedPc && localStream) {
+            console.log(`Adding track: ${track.kind} with ID ${track.id}`);
+            extendedPc.addTrack(track, localStream);
+          }
+        } catch (err) {
+          console.error(`Error adding track ${track.kind}:`, err);
+        }
+      });
+
+      // Mejorar el manejo de eventos para streams remotos
+      extendedPc.ontrack = (event: RTCTrackEvent) => {
+        console.log(`Got remote track: ${event.track.kind}, ID: ${event.track.id}, enabled: ${event.track.enabled}`);
+        console.log(`Remote track settings:`, event.track.getSettings());
+        
+        if (event.streams && event.streams[0]) {
+          console.log(`Setting remote stream with ID: ${event.streams[0].id}`);
+          console.log(`Remote stream has ${event.streams[0].getTracks().length} tracks:`, 
+              event.streams[0].getTracks().map(t => `${t.kind}:${t.enabled}:${t.id}`));
+          
+          // Verificar si ya teníamos un stream remoto
+          if (remoteStream) {
+            console.log('Replacing existing remote stream');
+          }
+          
+          setRemoteStream(event.streams[0]);
+        } else {
+          console.warn('Received track without stream');
+        }
+      };
+
+      // Handle ICE candidates
+      extendedPc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
+        if (event.candidate && currentDepartment.current) {
+          console.log('Generated ICE candidate for', currentDepartment.current);
+          // Convert to plain object before sending via socket
+          const candidateObj: RTCIceCandidateParam = {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid ?? null,
+            sdpMLineIndex: event.candidate.sdpMLineIndex ?? null
+          };
+          socket.emit('webrtc_ice_candidate', candidateObj, currentDepartment.current);
+        } else if (!event.candidate) {
+          console.log('ICE gathering complete');
+        }
+      };
+
+      // Other event handlers
+      extendedPc.onicegatheringstatechange = () => {
+        console.log('ICE gathering state:', extendedPc.iceGatheringState);
+      };
+
+      extendedPc.onsignalingstatechange = () => {
+        console.log('Signaling state:', extendedPc.signalingState);
+      };
+
+      // Log connection state changes
+      extendedPc.onconnectionstatechange = () => {
+        console.log('Connection state:', extendedPc.connectionState);
+        
+        // Handle connection failures
+        if (extendedPc) {
+          const state = extendedPc.connectionState;
+          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+            console.warn(`WebRTC connection state changed to ${state}. Ending call.`);
+            endCallFunction();
+          }
+        }
+      };
+
+      extendedPc.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', extendedPc.iceConnectionState);
+        
+        // Handle ICE failures
+        if (extendedPc) {
+          const state = extendedPc.iceConnectionState;
+          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+            console.warn(`ICE connection state changed to ${state}. Possible connection problem.`);
+          }
+        }
+      };
+
+      return true;
+    } catch (error) {
+      console.error('Error creating peer connection:', error);
+      Alert.alert('Error', 'No se pudo establecer la conexión de video');
+      return false;
+    }
+  }, [localStream, remoteStream, endCallFunction]); // Añadir endCallFunction como dependencia
+
+  // Create and send WebRTC offer with better error handling
+  const sendOffer = useCallback(async () => {
+    try {
+      if (!peerConnection.current || !currentDepartment.current) {
+        console.error('Cannot send offer: missing peer connection or department');
+        return false;
+      }
+      
+      console.log('Creating offer for', currentDepartment.current);
+      
+      // Create offer with explicit constraints
+      const offer = await peerConnection.current.createOffer({
+        offerToReceiveAudio: true, // Explícitamente solicitar audio
+        offerToReceiveVideo: true, // Explícitamente solicitar video
+        voiceActivityDetection: true
+      });
+      
+      console.log('Created offer:', offer);
+      console.log('Setting local description');
+      
+      await peerConnection.current.setLocalDescription(offer);
+      
+      // Esperar más tiempo para recolectar candidatos ICE
+      setTimeout(() => {
+        if (!peerConnection.current || !currentDepartment.current) return;
+        
+        // Use the current local description which might include ICE candidates
+        const currentOffer = peerConnection.current.localDescription;
+        
+        console.log('Sending offer to', currentDepartment.current);
+        if (currentOffer) {
+          // Añadir log más detallado
+          console.log(`SDP offer length: ${currentOffer.sdp.length}, type: ${currentOffer.type}`);
+          const plainOffer: RTCSessionDescriptionInit = {
+            type: currentOffer.type as RTCSdpType,
+            sdp: currentOffer.sdp
+          };
+          socket.emit('webrtc_offer', plainOffer, currentDepartment.current);
+        } else {
+          console.error('No local description available to send');
+        }
+      }, 1000); // Aumentar a 1000ms para dar más tiempo
+      
+      return true;
+    } catch (error) {
+      console.error('Error creating offer:', error);
+      Alert.alert('Error', 'No se pudo iniciar la videollamada');
+      endCallFunction();
+      return false;
+    }
+  }, [endCallFunction]); // Añadir endCallFunction como dependencia
 
   // Handle back button press during call
   useEffect(() => {
@@ -119,8 +328,16 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
 
         console.log('Requesting user media with constraints:', constraints);
         const stream = await mediaDevices.getUserMedia(constraints);
+        
+        if (!stream) {
+          throw new Error('No se pudo obtener stream de medios');
+        }
+        
         console.log('Got local stream with tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
+        
+        // Asegurar que el stream se guarda correctamente en el estado
         setLocalStream(stream);
+        console.log('Local stream almacenado en el estado:', stream);
       } catch (err) {
         console.error('Failed to get media stream:', err);
         Alert.alert('Error', 'No se pudo acceder a la cámara o micrófono. ' + String(err));
@@ -147,7 +364,7 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
   // Set up socket event listeners with better error handling
   useEffect(() => {
     // Handle accepted call
-    const handleAcceptedCall = (department: string) => {
+    const handleAcceptedCall = async (department: string) => {
       console.log(`Call accepted by department: ${department}`);
       
       // Show user that the call was accepted
@@ -163,9 +380,22 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
       // Start WebRTC connection
       setCallStatus('calling');
       
+      // Verificar que el stream local esté disponible antes de crear la conexión
+      if (!localStream) {
+        console.log('Waiting for local stream to be available...');
+        // Esperamos hasta 2 segundos para que el stream local esté disponible
+        for (let i = 0; i < 10; i++) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          if (localStream) {
+            console.log('Local stream now available, creating peer connection');
+            break;
+          }
+        }
+      }
+      
       try {
-        // Only create peer connection if it doesn't exist
-        if (!peerConnection.current) {
+        // Solo crear la conexión peer si existe el stream local
+        if (localStream) {
           const success = createPeerConnection();
           if (success) {
             sendOffer().catch(err => {
@@ -175,7 +405,9 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
             });
           }
         } else {
-          console.warn('Peer connection already exists');
+          console.error('Local stream still not available after waiting');
+          Alert.alert('Error', 'No se pudo acceder a la cámara o micrófono');
+          endCallFunction();
         }
       } catch (err) {
         console.error('Error in handleAcceptedCall:', err);
@@ -268,188 +500,36 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
       socket.off('webrtc_ice_candidate', handleICECandidate);
       socket.off('webrtc_end_call', handleEndCall);
     };
-  }, []);
+  }, [localStream]); // Importante: añadir localStream a las dependencias
 
-  // Create RTCPeerConnection with improved error handling and logging
-  const createPeerConnection = useCallback(() => {
-    console.log('Creating peer connection');
-    
-    try {
-      // Close any existing connection first
-      if (peerConnection.current) {
-        console.log('Closing existing peer connection');
-        peerConnection.current.close();
-        peerConnection.current = null;
-      }
-      
-      // Create new peer connection and cast as our extended interface
-      const pc = new RTCPeerConnection(rtcConfiguration);
-      const extendedPc = pc as unknown as RTCPeerConnectionWithEvents;
-      peerConnection.current = extendedPc;
-      
-      console.log('RTCPeerConnection created with config:', rtcConfiguration);
-      
-      // Add local tracks to peer connection
-      if (localStream) {
-        const tracks = localStream.getTracks();
-        console.log(`Adding ${tracks.length} local tracks to peer connection`);
+  // Añadir un useEffect para monitorear el estado de la conexión y reintentar si es necesario
+  useEffect(() => {
+    // Si estamos en una llamada pero no hay stream remoto después de un tiempo
+    if (callStatus === 'connected' && !remoteStream) {
+      const timeout = setTimeout(() => {
+        console.log('No remote stream detected after connecting. Attempting to reconnect...');
         
-        tracks.forEach(track => {
-          if (extendedPc && localStream) {
-            extendedPc.addTrack(track, localStream);
-          }
-        });
-      } else {
-        console.error('No local stream available when creating peer connection');
-        Alert.alert('Error', 'No se pudo iniciar la videollamada (sin acceso a cámara)');
-        return false;
-      }
-
-      // Set up remote stream handling
-      extendedPc.ontrack = (event: RTCTrackEvent) => {
-        console.log('Got remote track:', event.track.kind);
-        if (event.streams && event.streams[0]) {
-          console.log('Setting remote stream');
-          setRemoteStream(event.streams[0]);
-        } else {
-          console.warn('Received track without stream');
-        }
-      };
-
-      // Handle ICE candidates
-      extendedPc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
-        if (event.candidate && currentDepartment.current) {
-          console.log('Generated ICE candidate for', currentDepartment.current);
-          // Convert to plain object before sending via socket
-          const candidateObj: RTCIceCandidateParam = {
-            candidate: event.candidate.candidate,
-            sdpMid: event.candidate.sdpMid ?? null,  // Use nullish coalescing to ensure null instead of undefined
-            sdpMLineIndex: event.candidate.sdpMLineIndex ?? null  // Use nullish coalescing to ensure null instead of undefined
-          };
-          socket.emit('webrtc_ice_candidate', candidateObj, currentDepartment.current);
-        } else if (!event.candidate) {
-          console.log('ICE gathering complete');
-        }
-      };
-
-      // Other event handlers
-      extendedPc.onicegatheringstatechange = () => {
-        console.log('ICE gathering state:', extendedPc.iceGatheringState);
-      };
-
-      extendedPc.onsignalingstatechange = () => {
-        console.log('Signaling state:', extendedPc.signalingState);
-      };
-
-      // Log connection state changes
-      extendedPc.onconnectionstatechange = () => {
-        console.log('Connection state:', extendedPc.connectionState);
-        
-        // Handle connection failures
-        if (extendedPc) {
-          const state = extendedPc.connectionState;
-          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-            console.warn(`WebRTC connection state changed to ${state}. Ending call.`);
-            endCallFunction();
+        if (peerConnection.current) {
+          // Si la conexión está en estado 'failed', intentar recrear la conexión
+          const state = peerConnection.current.connectionState;
+          if (state === 'failed' || state === 'disconnected') {
+            console.log('Connection is in failed/disconnected state. Recreating connection...');
+            
+            // Solo recrear si tenemos el departamento actual y el stream local
+            if (currentDepartment.current && localStream) {
+              // Recrear la conexión y enviar una nueva oferta
+              createPeerConnection();
+              sendOffer().catch(err => {
+                console.error('Error sending new offer:', err);
+              });
+            }
           }
         }
-      };
-
-      extendedPc.oniceconnectionstatechange = () => {
-        console.log('ICE connection state:', extendedPc.iceConnectionState);
-        
-        // Handle ICE failures
-        if (extendedPc) {
-          const state = extendedPc.iceConnectionState;
-          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-            console.warn(`ICE connection state changed to ${state}. Possible connection problem.`);
-          }
-        }
-      };
-
-      return true;
-    } catch (error) {
-      console.error('Error creating peer connection:', error);
-      Alert.alert('Error', 'No se pudo establecer la conexión de video');
-      return false;
-    }
-  }, [localStream]);
-
-  // Create and send WebRTC offer with better error handling
-  const sendOffer = async () => {
-    try {
-      if (!peerConnection.current || !currentDepartment.current) {
-        console.error('Cannot send offer: missing peer connection or department');
-        return false;
-      }
+      }, 10000); // Esperar 10 segundos antes de intentar reconectar
       
-      console.log('Creating offer for', currentDepartment.current);
-      
-      // Create offer with explicit constraints
-      const offer = await peerConnection.current.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-      
-      console.log('Setting local description');
-      await peerConnection.current.setLocalDescription(offer);
-      
-      // Wait a moment to ensure ICE gathering has started
-      setTimeout(() => {
-        if (!peerConnection.current || !currentDepartment.current) return;
-        
-        // Use the current local description which might include ICE candidates
-        const currentOffer = peerConnection.current.localDescription;
-        
-        console.log('Sending offer to', currentDepartment.current);
-        if (currentOffer) {
-          // Convert to plain object to avoid circular reference issues
-          const plainOffer: RTCSessionDescriptionInit = {
-            type: currentOffer.type as RTCSdpType,
-            sdp: currentOffer.sdp
-          };
-          socket.emit('webrtc_offer', plainOffer, currentDepartment.current);
-        } else {
-          console.error('No local description available to send');
-        }
-      }, 500);
-      
-      return true;
-    } catch (error) {
-      console.error('Error creating offer:', error);
-      Alert.alert('Error', 'No se pudo iniciar la videollamada');
-      endCallFunction();
-      return false;
+      return () => clearTimeout(timeout);
     }
-  };
-
-  // End the current call with improved cleanup - renamed to avoid type conflicts
-  const endCallFunction = (sendEndEvent = true) => {
-    console.log('Ending call, sendEndEvent:', sendEndEvent);
-    
-    if (sendEndEvent && currentDepartment.current) {
-      socket.emit('webrtc_end_call', currentDepartment.current);
-    }
-    
-    // Close peer connection
-    if (peerConnection.current) {
-      peerConnection.current.close();
-      peerConnection.current = null;
-    }
-    
-    // Clean up remote stream
-    if (remoteStream) {
-      console.log('Cleaning up remote stream');
-      remoteStream.getTracks().forEach(track => {
-        track.stop();
-      });
-      setRemoteStream(null);
-    }
-    
-    // Reset call state
-    setCallStatus('idle');
-    currentDepartment.current = null;
-  };
+  }, [callStatus, remoteStream, createPeerConnection, sendOffer, localStream]);
 
   // Toggle microphone
   const toggleMute = () => {
@@ -463,20 +543,20 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
   };
 
   // Toggle camera
-  const toggleCamera = () => {
+  const toggleCamera = useCallback(() => {
     if (localStream) {
       const videoTracks = localStream.getVideoTracks();
       videoTracks.forEach(track => {
         track.enabled = !track.enabled;
       });
-      setIsCameraOff(!isCameraOff);
+      setIsCameraOff(prev => !prev);
     }
-  };
+  }, [localStream]);
 
   // Handler for ending the call from the UI
   const handleEndCallPress = useCallback((event: GestureResponderEvent) => {
     endCallFunction(true);
-  }, []);
+  }, [endCallFunction]);
 
   // Array of available departments
   const departments: string[] = [
@@ -495,7 +575,7 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
   };
 
   // Handle department selection
-  const handleDepartmentSelection = (department: string): void => {
+  const handleDepartmentSelection = useCallback((department: string): void => {
     setSelectedDepartment(department);
     
     // Show confirmation alert
@@ -529,11 +609,11 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
         }
       ]
     );
-  };
+  }, []);
 
   // Render call controls
   const renderCallControls = () => {
-    if (callStatus === 'connected') {
+    if (callStatus === 'connected' || callStatus === 'calling') {
       return (
         <View style={styles.callControls}>
           <TouchableOpacity 

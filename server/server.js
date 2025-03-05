@@ -7,13 +7,13 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+  },
 });
 
 // Ruta básica para verificar que el servidor está funcionando
-app.get('/', (req, res) => {
-  res.send('Servidor Portero DTI funcionando correctamente');
+app.get("/", (req, res) => {
+  res.send("Servidor Portero DTI funcionando correctamente");
 });
 
 // Objeto para almacenar las tablets registradas por rol
@@ -23,15 +23,23 @@ const tablets = {};
 io.on("connection", (socket) => {
   console.log("Nueva conexión:", socket.id);
 
+  // Agregar listener para capturar errores específicos del socket
+  socket.on("error", (error) => {
+    console.error(`Error en socket ${socket.id}:`, error);
+  });
+
   // Registrar el rol de la tablet
   socket.on("registrar", (rol) => {
     try {
       socket.rol = rol;
       tablets[rol] = socket.id;
       console.log(`Tablet registrada como: ${rol}`);
-      
+
       // Emitir evento de actualización de departamentos disponibles
-      io.emit("departamentos_actualizados", Object.keys(tablets).filter(r => r !== "Portero"));
+      io.emit(
+        "departamentos_actualizados",
+        Object.keys(tablets).filter((r) => r !== "Portero")
+      );
     } catch (error) {
       console.error(`Error al registrar rol ${rol}:`, error);
     }
@@ -46,7 +54,9 @@ io.on("connection", (socket) => {
         console.log(`Llamada iniciada desde Portero hacia ${departamento}`);
       } else {
         console.log(`Departamento ${departamento} no encontrado.`);
-        socket.emit("error", { message: `Departamento ${departamento} no disponible` });
+        socket.emit("error", {
+          message: `Departamento ${departamento} no disponible`,
+        });
       }
     } catch (error) {
       console.error(`Error al iniciar llamada:`, error);
@@ -92,11 +102,13 @@ io.on("connection", (socket) => {
   });
 
   // === Señalización WebRTC ===
-  
+
   // Reenviar oferta SDP
   socket.on("webrtc_offer", (offer, to) => {
     try {
-      console.log(`Oferta WebRTC recibida de ${socket.rol}, reenviando a ${to}`);
+      console.log(
+        `Oferta WebRTC recibida de ${socket.rol}, reenviando a ${to}`
+      );
       if (tablets[to]) {
         io.to(tablets[to]).emit("webrtc_offer", offer, socket.rol);
       }
@@ -108,7 +120,9 @@ io.on("connection", (socket) => {
   // Reenviar respuesta SDP
   socket.on("webrtc_answer", (answer, to) => {
     try {
-      console.log(`Respuesta WebRTC recibida de ${socket.rol}, reenviando a ${to}`);
+      console.log(
+        `Respuesta WebRTC recibida de ${socket.rol}, reenviando a ${to}`
+      );
       if (tablets[to]) {
         io.to(tablets[to]).emit("webrtc_answer", answer, socket.rol);
       }
@@ -120,7 +134,9 @@ io.on("connection", (socket) => {
   // Reenviar candidatos ICE
   socket.on("webrtc_ice_candidate", (candidate, to) => {
     try {
-      console.log(`Candidato ICE recibido de ${socket.rol}, reenviando a ${to}`);
+      console.log(
+        `Candidato ICE recibido de ${socket.rol}, reenviando a ${to}`
+      );
       if (tablets[to]) {
         io.to(tablets[to]).emit("webrtc_ice_candidate", candidate, socket.rol);
       }
@@ -136,13 +152,21 @@ io.on("connection", (socket) => {
       if (tablets[rol] === socket.id) {
         delete tablets[rol];
         console.log(`Rol ${rol} eliminado del registro`);
-        
+
         // Notificar a todos sobre la actualización de departamentos disponibles
-        io.emit("departamentos_actualizados", Object.keys(tablets).filter(r => r !== "Portero"));
+        io.emit(
+          "departamentos_actualizados",
+          Object.keys(tablets).filter((r) => r !== "Portero")
+        );
         break;
       }
     }
   });
+});
+
+// Además, se puede agregar un listener global de errores en io:
+io.on("error", (error) => {
+  console.error("Error global de socket.io:", error);
 });
 
 // Iniciar el servidor en el puerto configurado o 3000 por defecto
