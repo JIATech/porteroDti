@@ -5,8 +5,9 @@ import {
   RTCIceCandidateParam
 } from '../types/webrtc';
 
-// Server URL - Make configurable for different environments
-const SOCKET_SERVER_URL = 'http://192.168.2.194:3000';
+// Server URL con IP del servidor
+// ACTUALIZAR ESTO PARA TU RED LOCAL
+const SOCKET_SERVER_URL = 'http://192.168.X.X:3000';
 
 // Define socket event types for better type checking
 interface ServerToClientEvents {
@@ -38,13 +39,14 @@ interface ClientToServerEvents {
 
 // Create socket instance with improved configuration
 const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SOCKET_SERVER_URL, {
-  autoConnect: false, // Change to false to control connection timing
+  autoConnect: false, // Cambiamos a falso para controlar la conexión manualmente
   reconnection: true,
-  reconnectionAttempts: Infinity, // Keep trying to reconnect
+  reconnectionAttempts: Infinity, // Seguir intentando reconectar indefinidamente
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000, // Cap the delay at 5 seconds
   timeout: 20000, // Longer timeout
-  transports: ['websocket', 'polling'], // Try WebSocket first, then polling
+  transports: ['websocket', 'polling'], // WebSocket primero, polling como respaldo
+  forceNew: true, // Forzar una nueva conexión para evitar problemas
 });
 
 // Event handlers for connection status

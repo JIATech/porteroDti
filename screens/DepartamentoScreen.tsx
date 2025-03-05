@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, ScrollView, SafeAreaView, Alert, Platform, PermissionsAndroid, BackHandler, GestureResponderEvent } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
+import { Audio } from 'expo-av';  // Añadimos la importación para sonidos
 import { THEME } from '../utils/constants';
 import { socket } from '../services/socketService';
 import {
@@ -76,6 +77,42 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({ route, onAccept
     setLogMessages(prevLogs => [`${timestamp}: ${message}`, ...prevLogs]);
   }, []);
 
+  // Referencia para el sonido
+  const notificationSound = useRef<Audio.Sound | null>(null);
+  
+  // Cargar el sonido de notificación al inicio
+  useEffect(() => {
+    const loadSound = async () => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          require('../assets/sounds/notification.mp3')
+        );
+        notificationSound.current = sound;
+      } catch (error) {
+        console.error('Error cargando sonido:', error);
+      }
+    };
+    
+    loadSound();
+    
+    return () => {
+      if (notificationSound.current) {
+        notificationSound.current.unloadAsync();
+      }
+    };
+  }, []);
+  
+  // Función para reproducir el sonido
+  const playNotificationSound = async () => {
+    if (notificationSound.current) {
+      try {
+        await notificationSound.current.replayAsync();
+      } catch (error) {
+        console.error('Error reproduciendo sonido:', error);
+      }
+    }
+  };
+
   // Request permissions and initialize WebRTC with better error handling
   useEffect(() => {
     const initializeWebRTC = async () => {
@@ -111,10 +148,25 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({ route, onAccept
         addLogEntry('Solicitando acceso a cámara y micrófono...');
         console.log('Requesting user media with constraints:', constraints);
         
-        const stream = await mediaDevices.getUserMedia(constraints);
-        setLocalStream(stream);
-        console.log('Local stream obtained with tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
-        addLogEntry('Cámara y micrófono inicializados correctamente');
+        try {
+          const stream = await mediaDevices.getUserMedia(constraints);
+          console.log('Stream obtenido correctamente:', stream);
+          if (!stream) {
+            throw new Error('No se pudo obtener stream');
+          }
+          
+          setLocalStream(stream);
+          console.log('Local stream set in state');
+          
+          const tracks = stream.getTracks();
+          console.log('Local stream obtained with tracks:', tracks.map(t => `${t.kind}:${t.enabled}`));
+          addLogEntry('Cámara y micrófono inicializados correctamente');
+        } catch (mediaError) {
+          console.error('Error específico obteniendo media:', mediaError);
+          Alert.alert('Error de Cámara/Micrófono', 
+            `No se pudo acceder a cámara o micrófono: ${mediaError instanceof Error ? mediaError.message : String(mediaError)}`);
+          addLogEntry(`Error: Error específico con cámara/micrófono - ${mediaError instanceof Error ? mediaError.message : String(mediaError)}`);
+        }
       } catch (err: unknown) {
         console.error('Failed to get media stream:', err);
         Alert.alert('Error', 'No se pudo acceder a la cámara o micrófono');
@@ -122,20 +174,21 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({ route, onAccept
       }
     };
 
+    // Llamamos a inicializar inmediatamente
     initializeWebRTC().catch(err => {
       console.error('Error in initializeWebRTC:', err);
       addLogEntry(`Error inicializando WebRTC: ${err.toString()}`);
     });
 
     return () => {
-      // Clean up on unmount - improved cleanup
+      // Clean up on unmount
       if (localStream) {
         console.log('Stopping local stream tracks');
         localStream.getTracks().forEach(track => {
           track.stop();
         });
       }
-      endCallFunction(false); // Don't send end call event on unmount
+      endCallFunction(false);
     };
   }, []);
 
@@ -276,11 +329,14 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({ route, onAccept
       endCallFunction();
     };
 
-    // Handle incoming calls
+    // Handle incoming calls - Versión corregida
     const handleIncomingCall = (callerDept: string) => {
       console.log(`Incoming call received from: ${callerDept}`);
       setCallerDepartment(callerDept);
       setCallStatus('ringing');
+      
+      // Reproducir sonido
+      playNotificationSound();
       
       // Add to log
       addLogEntry(`Llamada entrante de ${callerDept}`);
@@ -319,8 +375,8 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({ route, onAccept
               // Add to log
               addLogEntry('Llamada aceptada');
               
-              // Show action buttons
-              setShowButtons(true);
+              // Iniciar la videollamada directamente en lugar de mostrar botones
+              setCallStatus('connected'); 
               
               if (onAccept) onAccept();
             }
@@ -350,6 +406,14 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({ route, onAccept
   const createPeerConnection = useCallback(() => {
     console.log('Creating peer connection');
     addLogEntry('Inicializando conexión de video');
+    
+    if (!localStream) {
+      console.error('No local stream available');
+      addLogEntry('ERROR: No se puede crear conexión sin acceso a cámara/micrófono');
+      Alert.alert('Error de videollamada', 
+        'No hay acceso a cámara o micrófono. Por favor, verifica los permisos e inténtalo nuevamente.');
+      return false;
+    }
     
     try {
       // Close any existing connection first
