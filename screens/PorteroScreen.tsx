@@ -1,8 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, Text, SafeAreaView, TouchableOpacity, Alert, Platform, PermissionsAndroid, BackHandler, GestureResponderEvent } from 'react-native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { THEME } from '../utils/constants';
-import { socket } from '../services/socketService';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  View,
+  StyleSheet,
+  Text,
+  SafeAreaView,
+  TouchableOpacity,
+  Alert,
+  Platform,
+  PermissionsAndroid,
+  BackHandler,
+  GestureResponderEvent,
+} from "react-native";
+import { StackNavigationProp } from "@react-navigation/stack";
+import { THEME } from "../utils/constants";
+import { socket } from "../services/socketService";
 import {
   RTCPeerConnection,
   RTCIceCandidate,
@@ -10,19 +21,17 @@ import {
   MediaStream,
   mediaDevices,
   RTCView,
-} from 'react-native-webrtc';
+} from "react-native-webrtc";
 
-// Import our custom type definitions
+// Import custom type definitions
 import {
   RTCSdpType,
   RTCSessionDescriptionInit,
-  RTCIceCandidateInit,
   RTCIceCandidateParam,
   RTCTrackEvent,
   RTCPeerConnectionIceEvent,
   RTCPeerConnectionWithEvents,
-  RTCMediaStream
-} from '../types/webrtc';
+} from "../types/webrtc";
 
 type RootStackParamList = {
   RoleSelection: undefined;
@@ -31,613 +40,468 @@ type RootStackParamList = {
 };
 
 type PorteroScreenProps = {
-  navigation: StackNavigationProp<RootStackParamList, 'Portero'>;
+  navigation: StackNavigationProp<RootStackParamList, "Portero">;
 };
 
 type DepartmentIconMap = {
   [key: string]: string;
 };
 
-type CallStatus = 'idle' | 'calling' | 'connected' | 'ended';
+type CallStatus = "idle" | "calling" | "connected" | "ended";
 
-/**
- * Screen for porter (portero) role with department selection
- */
 const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
-  // State to track selected department
-  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
-  
-  // WebRTC states
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(
+    null
+  );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [callStatus, setCallStatus] = useState<CallStatus>('idle');
+  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isCameraOff, setIsCameraOff] = useState<boolean>(false);
 
-  // WebRTC refs
   const peerConnection = useRef<RTCPeerConnectionWithEvents | null>(null);
   const currentDepartment = useRef<string | null>(null);
 
-  // Configuration for WebRTC
-  const rtcConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-    ],
-    iceCandidatePoolSize: 10,
+  // Configuración para que la conexión funcione en red local (sin servidores STUN/TURN externos)
+  const rtcConfiguration: RTCConfiguration = {
+    iceServers: [], // Sin servidores STUN/TURN externos
+    iceTransportPolicy: "all" as RTCIceTransportPolicy,
+    iceCandidatePoolSize: 0,
   };
 
-  // End the current call with improved cleanup
-  // Define this function first to avoid reference issues
-  const endCallFunction = useCallback((sendEndEvent = true) => {
-    console.log('Ending call, sendEndEvent:', sendEndEvent);
-    
-    if (sendEndEvent && currentDepartment.current) {
-      socket.emit('webrtc_end_call', currentDepartment.current);
+  const endCallFunction = useCallback(
+    (sendEndEvent = true) => {
+      console.log("Ending call, sendEndEvent:", sendEndEvent);
+      if (sendEndEvent && currentDepartment.current) {
+        socket.emit("webrtc_end_call", currentDepartment.current);
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
+      if (remoteStream) {
+        remoteStream.getTracks().forEach((track) => track.stop());
+        setRemoteStream(null);
+      }
+      setCallStatus("idle");
+      currentDepartment.current = null;
+    },
+    [remoteStream]
+  );
+
+  const createPeerConnection = useCallback(() => {
+    console.log("Creating peer connection");
+    if (!localStream) {
+      console.error("No local stream available");
+      Alert.alert(
+        "Error",
+        "No se pudo iniciar la videollamada (sin acceso a cámara)"
+      );
+      return false;
     }
-    
-    // Close peer connection
     if (peerConnection.current) {
       peerConnection.current.close();
       peerConnection.current = null;
     }
-    
-    // Clean up remote stream
-    if (remoteStream) {
-      console.log('Cleaning up remote stream');
-      remoteStream.getTracks().forEach(track => {
-        track.stop();
-      });
-      setRemoteStream(null);
-    }
-    
-    // Reset call state
-    setCallStatus('idle');
-    currentDepartment.current = null;
-  }, [remoteStream]); // Add remoteStream as dependency
+    const pc = new RTCPeerConnection(rtcConfiguration);
+    const extendedPc = pc as unknown as RTCPeerConnectionWithEvents;
+    peerConnection.current = extendedPc;
 
-  // Create RTCPeerConnection with improved error handling and logging
-  const createPeerConnection = useCallback(() => {
-    console.log('Creating peer connection');
-    
-    try {
-      // Verificar explícitamente la disponibilidad del stream local
-      if (!localStream) {
-        console.error('No local stream available when creating peer connection');
-        Alert.alert('Error', 'No se pudo iniciar la videollamada (sin acceso a cámara)');
-        return false;
+    // Agregar pistas locales
+    localStream.getTracks().forEach((track) => {
+      try {
+        extendedPc.addTrack(track, localStream);
+      } catch (err) {
+        console.error(`Error agregando pista ${track.kind}:`, err);
       }
-
-      console.log('Local stream is available with tracks:', 
-          localStream.getTracks().map(t => `${t.kind}:${t.enabled}`));
-      
-      // Close any existing connection first
-      if (peerConnection.current) {
-        console.log('Closing existing peer connection');
-        peerConnection.current.close();
-        peerConnection.current = null;
-      }
-      
-      // Create new peer connection and cast as our extended interface
-      const pc = new RTCPeerConnection(rtcConfiguration);
-      const extendedPc = pc as unknown as RTCPeerConnectionWithEvents;
-      peerConnection.current = extendedPc;
-      
-      console.log('RTCPeerConnection created with config:', rtcConfiguration);
-      
-      // Add local tracks to peer connection - Verificar cada track añadido
-      const tracks = localStream.getTracks();
-      console.log(`Adding ${tracks.length} local tracks to peer connection`);
-      
-      tracks.forEach(track => {
-        try {
-          if (extendedPc && localStream) {
-            console.log(`Adding track: ${track.kind} with ID ${track.id}`);
-            extendedPc.addTrack(track, localStream);
-          }
-        } catch (err) {
-          console.error(`Error adding track ${track.kind}:`, err);
-        }
-      });
-
-      // Mejorar el manejo de eventos para streams remotos
-      extendedPc.ontrack = (event: RTCTrackEvent) => {
-        console.log(`Got remote track: ${event.track.kind}, ID: ${event.track.id}, enabled: ${event.track.enabled}`);
-        console.log(`Remote track settings:`, event.track.getSettings());
-        
-        if (event.streams && event.streams[0]) {
-          console.log(`Setting remote stream with ID: ${event.streams[0].id}`);
-          console.log(`Remote stream has ${event.streams[0].getTracks().length} tracks:`, 
-              event.streams[0].getTracks().map(t => `${t.kind}:${t.enabled}:${t.id}`));
-          
-          // Verificar si ya teníamos un stream remoto
-          if (remoteStream) {
-            console.log('Replacing existing remote stream');
-          }
-          
-          setRemoteStream(event.streams[0]);
-        } else {
-          console.warn('Received track without stream');
-        }
-      };
-
-      // Handle ICE candidates
-      extendedPc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
-        if (event.candidate && currentDepartment.current) {
-          console.log('Generated ICE candidate for', currentDepartment.current);
-          // Convert to plain object before sending via socket
-          const candidateObj: RTCIceCandidateParam = {
-            candidate: event.candidate.candidate,
-            sdpMid: event.candidate.sdpMid ?? null,
-            sdpMLineIndex: event.candidate.sdpMLineIndex ?? null
-          };
-          socket.emit('webrtc_ice_candidate', candidateObj, currentDepartment.current);
-        } else if (!event.candidate) {
-          console.log('ICE gathering complete');
-        }
-      };
-
-      // Other event handlers
-      extendedPc.onicegatheringstatechange = () => {
-        console.log('ICE gathering state:', extendedPc.iceGatheringState);
-      };
-
-      extendedPc.onsignalingstatechange = () => {
-        console.log('Signaling state:', extendedPc.signalingState);
-      };
-
-      // Log connection state changes
-      extendedPc.onconnectionstatechange = () => {
-        console.log('Connection state:', extendedPc.connectionState);
-        
-        // Handle connection failures
-        if (extendedPc) {
-          const state = extendedPc.connectionState;
-          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-            console.warn(`WebRTC connection state changed to ${state}. Ending call.`);
-            endCallFunction();
-          }
-        }
-      };
-
-      extendedPc.oniceconnectionstatechange = () => {
-        console.log('ICE connection state:', extendedPc.iceConnectionState);
-        
-        // Handle ICE failures
-        if (extendedPc) {
-          const state = extendedPc.iceConnectionState;
-          if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-            console.warn(`ICE connection state changed to ${state}. Possible connection problem.`);
-          }
-        }
-      };
-
-      return true;
-    } catch (error) {
-      console.error('Error creating peer connection:', error);
-      Alert.alert('Error', 'No se pudo establecer la conexión de video');
-      return false;
-    }
-  }, [localStream, remoteStream, endCallFunction]); // Añadir endCallFunction como dependencia
-
-  // Create and send WebRTC offer with better error handling
-  const sendOffer = useCallback(async () => {
-    try {
-      if (!peerConnection.current || !currentDepartment.current) {
-        console.error('Cannot send offer: missing peer connection or department');
-        return false;
-      }
-      
-      console.log('Creating offer for', currentDepartment.current);
-      
-      // Create offer with explicit constraints
-      const offer = await peerConnection.current.createOffer({
-        offerToReceiveAudio: true, // Explícitamente solicitar audio
-        offerToReceiveVideo: true, // Explícitamente solicitar video
-        voiceActivityDetection: true
-      });
-      
-      console.log('Created offer:', offer);
-      console.log('Setting local description');
-      
-      await peerConnection.current.setLocalDescription(offer);
-      
-      // Esperar más tiempo para recolectar candidatos ICE
-      setTimeout(() => {
-        if (!peerConnection.current || !currentDepartment.current) return;
-        
-        // Use the current local description which might include ICE candidates
-        const currentOffer = peerConnection.current.localDescription;
-        
-        console.log('Sending offer to', currentDepartment.current);
-        if (currentOffer) {
-          // Añadir log más detallado
-          console.log(`SDP offer length: ${currentOffer.sdp.length}, type: ${currentOffer.type}`);
-          const plainOffer: RTCSessionDescriptionInit = {
-            type: currentOffer.type as RTCSdpType,
-            sdp: currentOffer.sdp
-          };
-          socket.emit('webrtc_offer', plainOffer, currentDepartment.current);
-        } else {
-          console.error('No local description available to send');
-        }
-      }, 1000); // Aumentar a 1000ms para dar más tiempo
-      
-      return true;
-    } catch (error) {
-      console.error('Error creating offer:', error);
-      Alert.alert('Error', 'No se pudo iniciar la videollamada');
-      endCallFunction();
-      return false;
-    }
-  }, [endCallFunction]); // Añadir endCallFunction como dependencia
-
-  // Handle back button press during call
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (callStatus !== 'idle') {
-        Alert.alert(
-          "¿Finalizar llamada?",
-          "¿Estás seguro de que deseas finalizar la llamada?",
-          [
-            { text: "No", style: "cancel" },
-            { text: "Sí", onPress: () => endCallFunction() }
-          ]
-        );
-        return true; // Prevent default back action
-      }
-      return false; // Let default back action happen
     });
 
-    return () => backHandler.remove();
-  }, [callStatus]);
+    extendedPc.ontrack = (event: RTCTrackEvent) => {
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+      } else {
+        console.warn("Recibido track sin stream");
+      }
+    };
 
-  // Request permissions and initialize WebRTC
-  useEffect(() => {
-    const initializeWebRTC = async () => {
-      try {
-        // Request permissions on Android
-        if (Platform.OS === 'android') {
-          const granted = await PermissionsAndroid.requestMultiple([
-            PermissionsAndroid.PERMISSIONS.CAMERA,
-            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          ]);
-          
-          if (
-            granted[PermissionsAndroid.PERMISSIONS.CAMERA] !== PermissionsAndroid.RESULTS.GRANTED ||
-            granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] !== PermissionsAndroid.RESULTS.GRANTED
-          ) {
-            Alert.alert('Permisos requeridos', 
-              'Se necesitan permisos de cámara y micrófono para videollamadas');
-            return;
-          }
-        }
-
-        // Get user media stream with error handling
-        const constraints = {
-          audio: true,
-          video: {
-            facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-          },
+    extendedPc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
+      if (event.candidate && currentDepartment.current) {
+        const candidateObj: RTCIceCandidateParam = {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid ?? null,
+          sdpMLineIndex: event.candidate.sdpMLineIndex ?? null,
         };
-
-        console.log('Requesting user media with constraints:', constraints);
-        const stream = await mediaDevices.getUserMedia(constraints);
-        
-        if (!stream) {
-          throw new Error('No se pudo obtener stream de medios');
-        }
-        
-        console.log('Got local stream with tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
-        
-        // Asegurar que el stream se guarda correctamente en el estado
-        setLocalStream(stream);
-        console.log('Local stream almacenado en el estado:', stream);
-      } catch (err) {
-        console.error('Failed to get media stream:', err);
-        Alert.alert('Error', 'No se pudo acceder a la cámara o micrófono. ' + String(err));
+        socket.emit(
+          "webrtc_ice_candidate",
+          candidateObj,
+          currentDepartment.current
+        );
+        console.log("Candidato ICE:", event.candidate.candidate);
+      } else if (!event.candidate) {
+        console.log("Finalización de gathering ICE");
       }
     };
 
-    initializeWebRTC().catch(err => {
-      console.error('Error in initializeWebRTC:', err);
-    });
-
-    return () => {
-      // Clean up on unmount - improved cleanup
-      if (localStream) {
-        console.log('Stopping local stream tracks');
-        localStream.getTracks().forEach(track => {
-          track.stop();
-        });
-      }
-      
-      endCallFunction(false); // Don't send end call event on unmount
-    };
-  }, []);
-
-  // Set up socket event listeners with better error handling
-  useEffect(() => {
-    // Handle accepted call
-    const handleAcceptedCall = async (department: string) => {
-      console.log(`Call accepted by department: ${department}`);
-      
-      // Show user that the call was accepted
-      Alert.alert(
-        'Llamada Aceptada',
-        `Llamada aceptada por ${department}. Iniciando videollamada...`,
-        [{ text: 'OK' }]
-      );
-      
-      // Store the current department
-      currentDepartment.current = department;
-      
-      // Start WebRTC connection
-      setCallStatus('calling');
-      
-      // Verificar que el stream local esté disponible antes de crear la conexión
-      if (!localStream) {
-        console.log('Waiting for local stream to be available...');
-        // Esperamos hasta 2 segundos para que el stream local esté disponible
-        for (let i = 0; i < 10; i++) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-          if (localStream) {
-            console.log('Local stream now available, creating peer connection');
-            break;
-          }
-        }
-      }
-      
-      try {
-        // Solo crear la conexión peer si existe el stream local
-        if (localStream) {
-          const success = createPeerConnection();
-          if (success) {
-            sendOffer().catch(err => {
-              console.error('Error sending offer:', err);
-              Alert.alert('Error', 'No se pudo iniciar la videollamada');
-              endCallFunction();
-            });
-          }
-        } else {
-          console.error('Local stream still not available after waiting');
-          Alert.alert('Error', 'No se pudo acceder a la cámara o micrófono');
-          endCallFunction();
-        }
-      } catch (err) {
-        console.error('Error in handleAcceptedCall:', err);
-        Alert.alert('Error', 'Error al iniciar la videollamada');
-      }
-    };
-
-    // Handle rejected call
-    const handleRejectedCall = (department: string) => {
-      console.log(`Call rejected by department: ${department}`);
-      Alert.alert(
-        'Llamada Rechazada',
-        `Llamada rechazada por ${department}.`,
-        [{ text: 'OK' }]
-      );
-      setCallStatus('idle');
-      currentDepartment.current = null;
-    };
-
-    // Fix typings for WebRTC events
-    const handleWebRTCAnswer = async (answer: RTCSessionDescriptionInit, from: string) => {
-      console.log('Received WebRTC answer from:', from);
-      
-      try {
-        if (!peerConnection.current) {
-          console.error('No peer connection when receiving answer');
-          return;
-        }
-        
-        if (peerConnection.current.signalingState === 'stable') {
-          console.warn('Signaling state already stable, ignoring answer');
-          return;
-        }
-
-        // Creating a proper RTCSessionDescription object with type assertion
-        const rtcSessionDescription = new RTCSessionDescription({
-          type: answer.type as RTCSdpType,
-          sdp: answer.sdp
-        });
-        
-        await peerConnection.current.setRemoteDescription(rtcSessionDescription);
-        console.log('Remote description set successfully');
-        setCallStatus('connected');
-      } catch (err) {
-        console.error('Error setting remote description:', err);
-        Alert.alert('Error', 'Error en la conexión de videollamada');
+    extendedPc.onconnectionstatechange = () => {
+      const state = extendedPc.connectionState;
+      console.log("Estado de conexión:", state);
+      if (
+        state === "failed" ||
+        state === "disconnected" ||
+        state === "closed"
+      ) {
+        console.warn(`Estado de conexión ${state}. Terminando llamada.`);
         endCallFunction();
       }
     };
 
-    // Handle ICE candidate with better error handling - updated parameter type
-    const handleICECandidate = async (candidate: RTCIceCandidateParam, from: string) => {
-      try {
-        if (peerConnection.current && peerConnection.current.remoteDescription) {
-          console.log('Adding ICE candidate');
-          // Create a proper RTCIceCandidate with null-checked parameters
-          const iceCandidate = new RTCIceCandidate({
-            candidate: candidate.candidate || '',
-            sdpMid: candidate.sdpMid ?? null,  // Use nullish coalescing to handle undefined
-            sdpMLineIndex: candidate.sdpMLineIndex ?? 0  // Use nullish coalescing with default 0
-          });
-          await peerConnection.current.addIceCandidate(iceCandidate);
+    return true;
+  }, [localStream, endCallFunction]);
+
+  const sendOffer = useCallback(async () => {
+    try {
+      if (!peerConnection.current || !currentDepartment.current) {
+        console.error("Falta conexión o departamento");
+        return false;
+      }
+      const offer = await peerConnection.current.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+        voiceActivityDetection: true,
+      });
+      await peerConnection.current.setLocalDescription(offer);
+      // Esperar un tiempo para recolectar candidatos ICE
+      setTimeout(() => {
+        if (!peerConnection.current || !currentDepartment.current) return;
+        const currentOffer = peerConnection.current.localDescription;
+        if (currentOffer) {
+          const plainOffer: RTCSessionDescriptionInit = {
+            type: currentOffer.type as RTCSdpType,
+            sdp: currentOffer.sdp,
+          };
+          socket.emit("webrtc_offer", plainOffer, currentDepartment.current);
         } else {
-          console.warn('Cannot add ICE candidate yet - no remote description');
+          console.error("No hay descripción local para enviar");
         }
+      }, 1000);
+      return true;
+    } catch (error) {
+      console.error("Error creando la oferta:", error);
+      Alert.alert("Error", "No se pudo iniciar la videollamada");
+      endCallFunction();
+      return false;
+    }
+  }, [endCallFunction]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        if (callStatus !== "idle") {
+          Alert.alert(
+            "¿Finalizar llamada?",
+            "¿Estás seguro de que deseas finalizar la llamada?",
+            [
+              { text: "No", style: "cancel" },
+              { text: "Sí", onPress: () => endCallFunction() },
+            ]
+          );
+          return true;
+        }
+        return false;
+      }
+    );
+    return () => backHandler.remove();
+  }, [callStatus, endCallFunction]);
+
+  useEffect(() => {
+    const initializeWebRTC = async () => {
+      try {
+        if (Platform.OS === "android") {
+          const granted = await PermissionsAndroid.requestMultiple([
+            PermissionsAndroid.PERMISSIONS.CAMERA,
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          ]);
+          if (
+            granted[PermissionsAndroid.PERMISSIONS.CAMERA] !==
+              PermissionsAndroid.RESULTS.GRANTED ||
+            granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] !==
+              PermissionsAndroid.RESULTS.GRANTED
+          ) {
+            Alert.alert(
+              "Permisos requeridos",
+              "Se necesitan permisos de cámara y micrófono para videollamadas"
+            );
+            return;
+          }
+        }
+        const constraints = {
+          audio: true,
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+        };
+        const stream = await mediaDevices.getUserMedia(constraints);
+        if (!stream) {
+          throw new Error("No se pudo obtener stream de medios");
+        }
+        setLocalStream(stream);
       } catch (err) {
-        console.error('Error adding ICE candidate:', err);
+        console.error("Error obteniendo el stream:", err);
+        Alert.alert(
+          "Error",
+          "No se pudo acceder a la cámara o micrófono. " + String(err)
+        );
       }
     };
 
-    // Handle call end
+    initializeWebRTC().catch((err) =>
+      console.error("Error en initializeWebRTC:", err)
+    );
+
+    return () => {
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+      }
+      endCallFunction(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleAcceptedCall = async (department: string) => {
+      Alert.alert(
+        "Llamada Aceptada",
+        `Llamada aceptada por ${department}. Iniciando videollamada...`,
+        [{ text: "OK" }]
+      );
+      currentDepartment.current = department;
+      setCallStatus("calling");
+
+      if (!localStream) {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          if (localStream) break;
+        }
+      }
+
+      try {
+        if (localStream) {
+          const success = createPeerConnection();
+          if (success) {
+            sendOffer().catch((err) => {
+              console.error("Error enviando oferta:", err);
+              Alert.alert("Error", "No se pudo iniciar la videollamada");
+              endCallFunction();
+            });
+          }
+        } else {
+          Alert.alert("Error", "No se pudo acceder a la cámara o micrófono");
+          endCallFunction();
+        }
+      } catch (err) {
+        console.error("Error en handleAcceptedCall:", err);
+        Alert.alert("Error", "Error al iniciar la videollamada");
+      }
+    };
+
+    const handleRejectedCall = (department: string) => {
+      Alert.alert("Llamada Rechazada", `Llamada rechazada por ${department}.`, [
+        { text: "OK" },
+      ]);
+      setCallStatus("idle");
+      currentDepartment.current = null;
+    };
+
+    const handleWebRTCAnswer = async (
+      answer: RTCSessionDescriptionInit,
+      from: string
+    ) => {
+      try {
+        if (!peerConnection.current) {
+          console.error("No hay conexión para recibir la respuesta");
+          return;
+        }
+        if (peerConnection.current.signalingState === "stable") {
+          return;
+        }
+        const rtcSessionDescription = new RTCSessionDescription({
+          type: answer.type as RTCSdpType,
+          sdp: answer.sdp,
+        });
+        await peerConnection.current.setRemoteDescription(
+          rtcSessionDescription
+        );
+        setCallStatus("connected");
+      } catch (err) {
+        console.error("Error al establecer la descripción remota:", err);
+        Alert.alert("Error", "Error en la conexión de videollamada");
+        endCallFunction();
+      }
+    };
+
+    const handleICECandidate = async (
+      candidate: RTCIceCandidateParam,
+      from: string
+    ) => {
+      try {
+        if (
+          peerConnection.current &&
+          peerConnection.current.remoteDescription
+        ) {
+          const iceCandidate = new RTCIceCandidate({
+            candidate: candidate.candidate || "",
+            sdpMid: candidate.sdpMid ?? null,
+            sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
+          });
+          await peerConnection.current.addIceCandidate(iceCandidate);
+        } else {
+          console.warn(
+            "No se puede agregar ICE candidate: sin descripción remota"
+          );
+        }
+      } catch (err) {
+        console.error("Error agregando ICE candidate:", err);
+      }
+    };
+
     const handleEndCall = (from: string) => {
-      console.log('Call ended by:', from);
-      Alert.alert('Llamada finalizada', `${from} ha finalizado la llamada.`);
+      Alert.alert("Llamada finalizada", `${from} ha finalizado la llamada.`);
       endCallFunction();
     };
 
-    // Register event listeners
-    socket.on('llamada_aceptada', handleAcceptedCall);
-    socket.on('llamada_rechazada', handleRejectedCall);
-    socket.on('webrtc_answer', handleWebRTCAnswer);
-    socket.on('webrtc_ice_candidate', handleICECandidate);
-    socket.on('webrtc_end_call', handleEndCall);
+    socket.on("llamada_aceptada", handleAcceptedCall);
+    socket.on("llamada_rechazada", handleRejectedCall);
+    socket.on("webrtc_answer", handleWebRTCAnswer);
+    socket.on("webrtc_ice_candidate", handleICECandidate);
+    socket.on("webrtc_end_call", handleEndCall);
 
-    // Clean up listeners on unmount
     return () => {
-      socket.off('llamada_aceptada', handleAcceptedCall);
-      socket.off('llamada_rechazada', handleRejectedCall);
-      socket.off('webrtc_answer', handleWebRTCAnswer);
-      socket.off('webrtc_ice_candidate', handleICECandidate);
-      socket.off('webrtc_end_call', handleEndCall);
+      socket.off("llamada_aceptada", handleAcceptedCall);
+      socket.off("llamada_rechazada", handleRejectedCall);
+      socket.off("webrtc_answer", handleWebRTCAnswer);
+      socket.off("webrtc_ice_candidate", handleICECandidate);
+      socket.off("webrtc_end_call", handleEndCall);
     };
-  }, [localStream]); // Importante: añadir localStream a las dependencias
+  }, [localStream]);
 
-  // Añadir un useEffect para monitorear el estado de la conexión y reintentar si es necesario
   useEffect(() => {
-    // Si estamos en una llamada pero no hay stream remoto después de un tiempo
-    if (callStatus === 'connected' && !remoteStream) {
+    if (callStatus === "connected" && !remoteStream) {
       const timeout = setTimeout(() => {
-        console.log('No remote stream detected after connecting. Attempting to reconnect...');
-        
         if (peerConnection.current) {
-          // Si la conexión está en estado 'failed', intentar recrear la conexión
           const state = peerConnection.current.connectionState;
-          if (state === 'failed' || state === 'disconnected') {
-            console.log('Connection is in failed/disconnected state. Recreating connection...');
-            
-            // Solo recrear si tenemos el departamento actual y el stream local
+          if (state === "failed" || state === "disconnected") {
             if (currentDepartment.current && localStream) {
-              // Recrear la conexión y enviar una nueva oferta
               createPeerConnection();
-              sendOffer().catch(err => {
-                console.error('Error sending new offer:', err);
-              });
+              sendOffer().catch((err) =>
+                console.error("Error reenviando oferta:", err)
+              );
             }
           }
         }
-      }, 10000); // Esperar 10 segundos antes de intentar reconectar
-      
+      }, 10000);
       return () => clearTimeout(timeout);
     }
   }, [callStatus, remoteStream, createPeerConnection, sendOffer, localStream]);
 
-  // Toggle microphone
   const toggleMute = () => {
     if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
+      localStream.getAudioTracks().forEach((track) => {
         track.enabled = !track.enabled;
       });
       setIsMuted(!isMuted);
     }
   };
 
-  // Toggle camera
   const toggleCamera = useCallback(() => {
     if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
+      localStream.getVideoTracks().forEach((track) => {
         track.enabled = !track.enabled;
       });
-      setIsCameraOff(prev => !prev);
+      setIsCameraOff((prev) => !prev);
     }
   }, [localStream]);
 
-  // Handler for ending the call from the UI
-  const handleEndCallPress = useCallback((event: GestureResponderEvent) => {
-    endCallFunction(true);
-  }, [endCallFunction]);
+  const handleEndCallPress = useCallback(
+    (event: GestureResponderEvent) => {
+      endCallFunction(true);
+    },
+    [endCallFunction]
+  );
 
-  // Array of available departments
   const departments: string[] = [
-    'Sistemas',
-    'Administración',
-    'Infraestructura',
-    'Soporte'
+    "Sistemas",
+    "Administración",
+    "Infraestructura",
+    "Soporte",
   ];
 
-  // Department icons/emojis - can be replaced with actual icons later
   const departmentIcons: DepartmentIconMap = {
-    'Sistemas': '💻',
-    'Administración': '📊',
-    'Infraestructura': '🏢',
-    'Soporte': '🛠️'
+    Sistemas: "💻",
+    Administración: "📊",
+    Infraestructura: "🏢",
+    Soporte: "🛠️",
   };
 
-  // Handle department selection
   const handleDepartmentSelection = useCallback((department: string): void => {
     setSelectedDepartment(department);
-    
-    // Show confirmation alert
     Alert.alert(
-      'Selección de Departamento',
+      "Selección de Departamento",
       `Has seleccionado: ${department}`,
       [
-        { 
-          text: 'Cancelar',
-          style: 'cancel',
-          onPress: () => console.log('Department selection cancelled')
+        {
+          text: "Cancelar",
+          style: "cancel",
+          onPress: () => console.log("Selección cancelada"),
         },
-        { 
-          text: 'Confirmar', 
+        {
+          text: "Confirmar",
           onPress: () => {
-            console.log(`Selected department: ${department}`);
-            
-            // Store current department
             currentDepartment.current = department;
-            
-            // Emit socket event to initiate a call
-            socket.emit('iniciar_llamada', department);
-            console.log(`Initiated call to department: ${department}`);
-            
-            // Show notification alert
+            socket.emit("iniciar_llamada", department);
             Alert.alert(
-              'Notificación Enviada',
+              "Notificación Enviada",
               `Se ha notificado al departamento de ${department}.`
             );
-          }
-        }
+          },
+        },
       ]
     );
   }, []);
 
-  // Render call controls
   const renderCallControls = () => {
-    if (callStatus === 'connected' || callStatus === 'calling') {
+    if (callStatus === "connected" || callStatus === "calling") {
       return (
         <View style={styles.callControls}>
-          <TouchableOpacity 
-            style={[styles.controlButton, isMuted && styles.controlButtonActive]}
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              isMuted && styles.controlButtonActive,
+            ]}
             onPress={toggleMute}
           >
             <Text style={styles.controlButtonText}>
-              {isMuted ? 'Activar Mic' : 'Silenciar'}
+              {isMuted ? "Activar Mic" : "Silenciar"}
             </Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[styles.controlButton, styles.endCallButton]}
             onPress={handleEndCallPress}
           >
             <Text style={styles.controlButtonText}>Finalizar</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.controlButton, isCameraOff && styles.controlButtonActive]}
+
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              isCameraOff && styles.controlButtonActive,
+            ]}
             onPress={toggleCamera}
           >
             <Text style={styles.controlButtonText}>
-              {isCameraOff ? 'Activar Cám' : 'Apagar Cám'}
+              {isCameraOff ? "Activar Cám" : "Apagar Cám"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -646,65 +510,60 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
     return null;
   };
 
-  // Render video call UI or department selection UI with improved UI
   const renderContent = () => {
-    if (callStatus === 'connected' || callStatus === 'calling') {
+    if (callStatus === "connected" || callStatus === "calling") {
       return (
         <View style={styles.callContainer}>
-          {/* Remote video (full screen) */}
           {remoteStream && (
             <RTCView
               streamURL={remoteStream.toURL()}
               style={styles.remoteVideo}
               objectFit="cover"
-              zOrder={0} // Ensure remote video is below local video
+              zOrder={0}
             />
           )}
-          
-          {/* Local video (picture-in-picture) */}
           {localStream && (
             <RTCView
               streamURL={localStream.toURL()}
               style={styles.localVideo}
               objectFit="cover"
-              zOrder={1} // Ensure local video is above remote video
-              mirror={true} // Mirror the front camera
+              zOrder={1}
+              mirror={true}
             />
           )}
-          
-          {/* Status text when calling but not yet connected */}
-          {callStatus === 'calling' && !remoteStream && (
+          {callStatus === "calling" && !remoteStream && (
             <View style={styles.callingOverlay}>
               <Text style={styles.callingText}>Conectando videollamada...</Text>
             </View>
           )}
-          
-          {/* Call controls */}
           {renderCallControls()}
         </View>
       );
     } else {
-      // Department selection UI (default)
       return (
         <View style={styles.container}>
           <Text style={styles.title}>Portero DTI</Text>
-          <Text style={styles.subtitle}>Selecciona un departamento para notificar</Text>
-          
+          <Text style={styles.subtitle}>
+            Selecciona un departamento para notificar
+          </Text>
           <View style={styles.buttonGrid}>
             {departments.map((department) => (
               <TouchableOpacity
                 key={department}
                 style={[
-                  styles.button, 
-                  selectedDepartment === department && styles.selectedButton
+                  styles.button,
+                  selectedDepartment === department && styles.selectedButton,
                 ]}
                 onPress={() => handleDepartmentSelection(department)}
               >
-                <Text style={styles.buttonIcon}>{departmentIcons[department]}</Text>
-                <Text 
+                <Text style={styles.buttonIcon}>
+                  {departmentIcons[department]}
+                </Text>
+                <Text
                   style={[
                     styles.buttonText,
-                    selectedDepartment === department && styles.selectedButtonText
+                    selectedDepartment === department &&
+                      styles.selectedButtonText,
                   ]}
                 >
                   {department}
@@ -717,11 +576,7 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
     }
   };
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      {renderContent()}
-    </SafeAreaView>
-  );
+  return <SafeAreaView style={styles.safeArea}>{renderContent()}</SafeAreaView>;
 };
 
 const styles = StyleSheet.create({
@@ -731,13 +586,13 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 10,
     color: THEME.SECONDARY_COLOR,
   },
@@ -745,26 +600,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 40,
     color: THEME.TEXT_COLOR,
-    textAlign: 'center',
+    textAlign: "center",
   },
   buttonGrid: {
-    width: '100%',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-around",
+    alignItems: "center",
   },
   button: {
     backgroundColor: THEME.PRIMARY_COLOR,
-    width: '46%', // Slightly larger
-    height: 170, // Taller buttons
+    width: "46%",
+    height: 170,
     padding: 18,
-    borderRadius: 18, // More rounded corners
+    borderRadius: 18,
     margin: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5, // Stronger shadow
-    shadowColor: '#000',
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 5,
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
@@ -772,83 +627,82 @@ const styles = StyleSheet.create({
   selectedButton: {
     backgroundColor: THEME.SECONDARY_COLOR,
     borderWidth: 3,
-    borderColor: '#fff',
+    borderColor: "#fff",
     transform: [{ scale: 1.05 }],
   },
   buttonIcon: {
-    fontSize: 46, // Larger icon
+    fontSize: 46,
     marginBottom: 14,
   },
   buttonText: {
-    color: '#fff',
-    fontSize: 20, // Larger text
-    fontWeight: 'bold',
-    textAlign: 'center',
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+    textAlign: "center",
   },
   selectedButtonText: {
-    color: '#fff',
+    color: "#fff",
   },
-  // Video call styles
   callContainer: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: "#000",
   },
   remoteVideo: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: "#000",
   },
   localVideo: {
-    position: 'absolute',
+    position: "absolute",
     right: 20,
     top: 20,
     width: 120,
     height: 160,
-    backgroundColor: '#111',
+    backgroundColor: "#111",
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: "#fff",
   },
   callingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
   },
   callingText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   callControls: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 30,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
     paddingHorizontal: 20,
   },
   controlButton: {
     paddingVertical: 12,
     paddingHorizontal: 20,
-    backgroundColor: 'rgba(80, 80, 80, 0.8)',
+    backgroundColor: "rgba(80, 80, 80, 0.8)",
     borderRadius: 24,
     minWidth: 100,
-    alignItems: 'center',
+    alignItems: "center",
   },
   controlButtonActive: {
-    backgroundColor: 'rgba(180, 20, 20, 0.8)',
+    backgroundColor: "rgba(180, 20, 20, 0.8)",
   },
   endCallButton: {
-    backgroundColor: '#c62828',
+    backgroundColor: "#c62828",
     paddingVertical: 15,
   },
   controlButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 16,
-  }
+  },
 });
 
 export default PorteroScreen;

@@ -48,7 +48,7 @@ const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SERVER_URL
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   timeout: 20000,
-  transports: ['websocket', 'polling'],
+  transports: ['websocket'],
   forceNew: true,
 });
 
