@@ -4,18 +4,22 @@ import {
   RTCSessionDescriptionInit,
   RTCIceCandidateParam
 } from '../types/webrtc';
+import { SOCKET_SERVER_URL } from '@env';
 
-// Server URL con IP del servidor
-// ACTUALIZAR ESTO PARA TU RED LOCAL
-const SOCKET_SERVER_URL = 'http://192.168.X.X:3000';
+// Usar la variable de entorno para la URL del servidor
+// Añadir un fallback por si la variable no está definida
+const SERVER_URL = SOCKET_SERVER_URL || 'http://192.168.2.194:3000';
+
+// Para debugging
+console.log('Conectando al servidor:', SERVER_URL);
 
 // Define socket event types for better type checking
 interface ServerToClientEvents {
   notification: (message: string, department: string) => void;
   responseReceived: (accepted: boolean, department: string) => void;
   llamada_entrante: (callerDepartment: string) => void;
-  llamada_aceptada: (department: string) => void; // Add this line
-  llamada_rechazada: (department: string) => void; // Add this line
+  llamada_aceptada: (department: string) => void;
+  llamada_rechazada: (department: string) => void;
   // WebRTC events
   webrtc_offer: (offer: RTCSessionDescriptionInit, from: string) => void;
   webrtc_answer: (answer: RTCSessionDescriptionInit, from: string) => void;
@@ -27,9 +31,9 @@ interface ClientToServerEvents {
   sendNotification: (department: string, message: string) => void;
   responseToNotification: (department: string, accepted: boolean) => void;
   registrar: (role: string) => void;
-  iniciar_llamada: (department: string) => void; // Add this line
-  aceptar_llamada: (department: string) => void;  // Updated to include department parameter
-  rechazar_llamada: (department: string) => void; // Updated to include department parameter
+  iniciar_llamada: (department: string) => void;
+  aceptar_llamada: (department: string) => void;
+  rechazar_llamada: (department: string) => void;
   // WebRTC events
   webrtc_offer: (offer: RTCSessionDescriptionInit, to: string) => void;
   webrtc_answer: (answer: RTCSessionDescriptionInit, to: string) => void;
@@ -38,15 +42,15 @@ interface ClientToServerEvents {
 }
 
 // Create socket instance with improved configuration
-const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SOCKET_SERVER_URL, {
-  autoConnect: false, // Cambiamos a falso para controlar la conexión manualmente
+const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SERVER_URL, {
+  autoConnect: false,
   reconnection: true,
-  reconnectionAttempts: Infinity, // Seguir intentando reconectar indefinidamente
+  reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000, // Cap the delay at 5 seconds
-  timeout: 20000, // Longer timeout
-  transports: ['websocket', 'polling'], // WebSocket primero, polling como respaldo
-  forceNew: true, // Forzar una nueva conexión para evitar problemas
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  transports: ['websocket', 'polling'],
+  forceNew: true,
 });
 
 // Event handlers for connection status
@@ -64,7 +68,7 @@ socket.on('connect_error', (error) => {
   if (__DEV__) {
     console.log('Connection error details:', error);
     // On Android simulator connecting to localhost, suggest using 10.0.2.2
-    if (Platform.OS === 'android' && SOCKET_SERVER_URL.includes('localhost')) {
+    if (Platform.OS === 'android' && SERVER_URL.includes('localhost')) {
       console.log('On Android simulator, try using 10.0.2.2 instead of localhost');
     }
   }
