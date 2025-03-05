@@ -33,7 +33,7 @@ Portero DTI es una aplicación de comunicación en tiempo real desarrollada con 
 
 1. Clona el repositorio:
    ```bash
-   git clone https://your-repository-url/porteroDti.git
+   git clone https://github.com/JIATech/porteroDti.git
    cd porteroDti
    ```
 
