@@ -7,7 +7,7 @@ import {
 import Config from 'react-native-config';
 
 // Usar Config para obtener variables de entorno
-const SERVER_URL = Config.SOCKET_SERVER_URL || 'http://192.168.2.194:3000';
+const SERVER_URL = Config.SOCKET_SERVER_URL || 'http://172.16.2.107:3000';
 
 // Para debugging
 console.log('Conectando al servidor:', SERVER_URL);

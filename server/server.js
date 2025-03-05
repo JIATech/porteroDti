@@ -1,6 +1,7 @@
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
+const os = require("os"); // Add os module to get network interfaces
 
 const app = express();
 const server = http.createServer(app);
@@ -169,8 +170,26 @@ io.on("error", (error) => {
   console.error("Error global de socket.io:", error);
 });
 
+// Función para obtener la dirección IP local
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const interfaceName in interfaces) {
+    const iface = interfaces[interfaceName];
+    for (let i = 0; i < iface.length; i++) {
+      const { address, family, internal } = iface[i];
+      if (family === 'IPv4' && !internal) {
+        return address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
 // Iniciar el servidor en el puerto configurado o 3000 por defecto
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+// Usar 0.0.0.0 para escuchar en todas las interfaces de red
+server.listen(PORT, '0.0.0.0', () => {
+  const localIP = getLocalIpAddress();
   console.log(`Servidor Portero DTI escuchando en el puerto ${PORT}`);
+  console.log(`Accesible localmente en: http://${localIP}:${PORT}`);
 });

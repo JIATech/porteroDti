@@ -42,10 +42,62 @@ Portero DTI es una aplicación de comunicación en tiempo real desarrollada con 
    npm install
    ```
 
-3. Configura el servidor Socket.IO:
-   - Actualiza la URL del servidor en `services/socketService.ts`
+3. **IMPORTANTE**: Configuración del servidor Socket.IO y WebRTC
+   - La aplicación requiere actualizar las direcciones IP en varios archivos para funcionar en tu red local
+   - Ver la sección "Configuración de IP Local" más abajo
 
-## Ejecución del proyecto
+## Configuración de IP Local
+
+### ⚠️ IMPORTANTE: La aplicación no funcionará correctamente sin actualizar las IP's
+
+La aplicación utiliza comunicación en tiempo real entre dispositivos en la misma red local. Para que esto funcione, debes actualizar las referencias a la dirección IP local en estos archivos:
+
+1. **services/socketService.ts**:
+   ```typescript
+   // Cambiar 'localhost' o '192.168.x.x' por tu dirección IP local
+   const SOCKET_URL = 'http://TU_IP_LOCAL:3000';
+   ```
+
+2. **services/webrtcService.ts** (si existe):
+   ```typescript
+   // Actualizar cualquier referencia a localhost o IP con tu IP local
+   const configuration = { ... };
+   ```
+
+3. **Verifica también** cualquier otro archivo que pueda tener referencias IP hardcodeadas:
+   - components/VideoCall.tsx
+   - screens/CallScreen.tsx
+   - screens/HomeScreen.tsx
+
+### Cómo encontrar tu dirección IP local:
+
+- **Windows**: Abre CMD y escribe `ipconfig`
+- **Mac/Linux**: Abre Terminal y escribe `ifconfig` o `ip addr`
+- **Desde el servidor**: Al iniciar el servidor, mostrará automáticamente la IP local en la consola
+
+## Ejecución del servidor
+
+El servidor de señalización debe ejecutarse para que la aplicación funcione:
+
+1. Navega al directorio del servidor:
+   ```bash
+   cd server
+   ```
+
+2. Inicia el servidor:
+   ```bash
+   node server.js
+   ```
+
+3. El servidor mostrará mensajes como:
+   ```
+   Servidor Portero DTI escuchando en el puerto 3000
+   Accesible localmente en: http://192.168.x.x:3000
+   ```
+
+4. **Usa esta IP** para actualizar los archivos de configuración mencionados anteriormente
+
+## Ejecución de la aplicación
 
 ### Desarrollo con WebRTC
 
@@ -77,6 +129,22 @@ Para trabajar en la interfaz sin necesidad de WebRTC real:
 
 2. La aplicación usará automáticamente un mock de WebRTC para continuar el desarrollo de la interfaz.
 
+## Pruebas en múltiples dispositivos
+
+Para probar la aplicación completa:
+
+1. Asegúrate de que todos los dispositivos estén conectados a la misma red WiFi
+2. El servidor debe estar ejecutándose en una máquina dentro de la misma red
+3. Todos los dispositivos deben usar la misma IP del servidor en su configuración
+4. Ejecuta la aplicación en modo desarrollo en cada dispositivo
+
+## Problemas comunes
+
+- **Error de conexión al servidor**: Verifica que la IP configurada sea correcta y que el servidor esté ejecutándose
+- **No se pueden ver los departamentos**: Verifica que ambos dispositivos estén conectados al mismo servidor Socket.IO
+- **Fallo en videollamada**: Asegúrate de tener permisos de cámara y micrófono habilitados
+- **Problemas de red**: WebRTC puede tener problemas con ciertas configuraciones de red; asegúrate de que no haya restricciones de firewall
+
 ## Uso
 
 1. Al iniciar la aplicación, selecciona un rol (Portero o un Departamento específico)
@@ -90,3 +158,35 @@ Para trabajar en la interfaz sin necesidad de WebRTC real:
    - Al aceptar, se iniciará una videollamada
 
 ## Estructura del proyecto
+
+```
+porteroDti/
+├── assets/                # Imágenes, íconos y recursos estáticos
+├── components/            # Componentes reutilizables
+├── navigation/            # Configuración de navegación
+├── screens/               # Pantallas de la aplicación
+├── services/              # Servicios (Socket.IO, WebRTC)
+├── server/                # Servidor de señalización Socket.IO
+├── app.json               # Configuración de Expo
+├── babel.config.js        # Configuración de Babel
+└── package.json           # Dependencias del proyecto
+```
+
+## Despliegue en producción
+
+Para despliegues en producción:
+
+1. Configura un servidor de señalización Socket.IO accesible desde internet
+2. Actualiza la configuración con la URL del servidor de producción
+3. Crea un build de producción:
+   ```bash
+   eas build --profile production --platform android
+   ```
+
+## Contribuciones
+
+Las contribuciones son bienvenidas. Por favor, asegúrate de probar tus cambios antes de enviar un pull request.
+
+## Licencia
+
+Este proyecto está licenciado bajo la licencia MIT. Ver el archivo LICENSE para más detalles.
