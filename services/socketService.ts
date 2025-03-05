@@ -4,11 +4,10 @@ import {
   RTCSessionDescriptionInit,
   RTCIceCandidateParam
 } from '../types/webrtc';
-import { SOCKET_SERVER_URL } from '@env';
+import Config from 'react-native-config';
 
-// Usar la variable de entorno para la URL del servidor
-// Añadir un fallback por si la variable no está definida
-const SERVER_URL = SOCKET_SERVER_URL || 'http://192.168.2.194:3000';
+// Usar Config para obtener variables de entorno
+const SERVER_URL = Config.SOCKET_SERVER_URL || 'http://192.168.2.194:3000';
 
 // Para debugging
 console.log('Conectando al servidor:', SERVER_URL);
