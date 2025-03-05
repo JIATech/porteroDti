@@ -1,50 +1,92 @@
-# Welcome to your Expo app 👋
+# Portero DTI
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## Descripción
 
-## Get started
+Portero DTI es una aplicación de comunicación en tiempo real desarrollada con React Native y Expo, diseñada para facilitar la comunicación entre porteros y departamentos en edificios o instituciones. La aplicación utiliza WebRTC para realizar videollamadas y Socket.IO para la señalización y comunicación en tiempo real.
 
-1. Install dependencies
+![Portero DTI App](/assets/icon.png)
 
+## Características principales
+
+- **Sistema de roles**: Permite identificarse como Portero o como un departamento específico
+- **Notificaciones en tiempo real**: Sistema de alertas cuando el portero busca contactar a un departamento
+- **Videollamadas**: Comunicación audiovisual mediante WebRTC
+- **Interfaz intuitiva**: Diseño simple y accesible para ambos tipos de usuarios
+- **Registro de actividad**: Log en tiempo real para los departamentos
+
+## Tecnologías utilizadas
+
+- **React Native**: Framework para desarrollo móvil multiplataforma
+- **Expo**: Plataforma para simplificar el desarrollo React Native
+- **WebRTC**: API para comunicación en tiempo real (videollamadas)
+- **Socket.IO**: Biblioteca para comunicación bidireccional en tiempo real
+- **TypeScript**: Tipado estático para mejorar el desarrollo y prevenir errores
+
+## Requisitos previos
+
+- Node.js (versión 14 o superior)
+- npm o yarn
+- Expo CLI
+- Android Studio (para emulador Android) o Xcode (para emulador iOS)
+
+## Instalación
+
+1. Clona el repositorio:
+   ```bash
+   git clone https://your-repository-url/porteroDti.git
+   cd porteroDti
+   ```
+
+2. Instala las dependencias:
    ```bash
    npm install
    ```
 
-2. Start the app
+3. Configura el servidor Socket.IO:
+   - Actualiza la URL del servidor en `services/socketService.ts`
 
+## Ejecución del proyecto
+
+### Desarrollo con WebRTC
+
+WebRTC requiere acceso a APIs nativas que no están disponibles en Expo Go. Para desarrollo completo con WebRTC:
+
+1. Crea un development build:
    ```bash
-    npx expo start
+   eas build --profile development --platform android
    ```
 
-In the output, you'll find options to open the app in a
+2. Instala el build en tu dispositivo/emulador:
+   ```bash
+   eas build:run
+   ```
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+3. Inicia el servidor de desarrollo:
+   ```bash
+   npm run start
+   ```
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Desarrollo con mock WebRTC (solo interfaz)
 
-## Get a fresh project
+Para trabajar en la interfaz sin necesidad de WebRTC real:
 
-When you're ready, run:
+1. Inicia Expo Go:
+   ```bash
+   npx expo start
+   ```
 
-```bash
-npm run reset-project
-```
+2. La aplicación usará automáticamente un mock de WebRTC para continuar el desarrollo de la interfaz.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Uso
 
-## Learn more
+1. Al iniciar la aplicación, selecciona un rol (Portero o un Departamento específico)
+2. Si seleccionaste el rol de Portero:
+   - Podrás ver la lista de departamentos disponibles
+   - Selecciona un departamento para iniciar una notificación
+   - Cuando el departamento acepte, se iniciará una videollamada
+3. Si seleccionaste un rol de Departamento:
+   - Verás un log en tiempo real de actividades
+   - Cuando el portero te contacte, podrás aceptar o rechazar la llamada
+   - Al aceptar, se iniciará una videollamada
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Estructura del proyecto
