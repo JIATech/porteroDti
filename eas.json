@@ -11,12 +11,25 @@
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "env": {
+        "ANDROID_KOTLIN_VERSION": "1.9.25"
+      },
+      "prebuildCommand": "./eas-build-pre-install.sh"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "ANDROID_KOTLIN_VERSION": "1.9.25"
+      },
+      "prebuildCommand": "./eas-build-pre-install.sh"
     },
-    "production": {}
+    "production": {
+      "env": {
+        "ANDROID_KOTLIN_VERSION": "1.9.25"
+      },
+      "prebuildCommand": "./eas-build-pre-install.sh"
+    }
   },
   "submit": {
     "production": {}

@@ -50,7 +50,6 @@
         }
       ]
     ],
-    "sdkVersion": "49.0.0",
     "extra": {
       "eas": {
         "projectId": "486f0d81-616e-4897-8913-4fa201cf8dda"
