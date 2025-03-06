@@ -14,6 +14,8 @@ import {
 import { StackNavigationProp } from "@react-navigation/stack";
 import { THEME } from "../utils/constants";
 import { socket } from "../services/socketService";
+import KioskMode from "../utils/KioskMode";
+import AdminTrigger from "../components/AdminTrigger";
 import {
   RTCPeerConnection,
   RTCIceCandidate,
@@ -69,6 +71,17 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
     iceCandidatePoolSize: 0,
   };
 
+  // Enable kiosk mode when component mounts
+  useEffect(() => {
+    // Enable kiosk mode
+    KioskMode.enable();
+
+    // Clean up function to disable kiosk mode when component unmounts
+    return () => {
+      KioskMode.disable();
+    };
+  }, []);
+
   const endCallFunction = useCallback(
     (sendEndEvent = true) => {
       console.log("Ending call, sendEndEvent:", sendEndEvent);
@@ -88,6 +101,30 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
     },
     [remoteStream]
   );
+
+  // Override the back button handler
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        // If in a call, show confirmation before ending call
+        if (callStatus !== "idle") {
+          Alert.alert(
+            "¿Finalizar llamada?",
+            "¿Estás seguro de que deseas finalizar la llamada?",
+            [
+              { text: "No", style: "cancel" },
+              { text: "Sí", onPress: () => endCallFunction() },
+            ]
+          );
+          return true;
+        }
+        // In all cases, prevent going back/exiting the app
+        return true;
+      }
+    );
+    return () => backHandler.remove();
+  }, [callStatus, endCallFunction]);
 
   const createPeerConnection = useCallback(() => {
     console.log("Creating peer connection");
@@ -192,27 +229,6 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
       return false;
     }
   }, [endCallFunction]);
-
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener(
-      "hardwareBackPress",
-      () => {
-        if (callStatus !== "idle") {
-          Alert.alert(
-            "¿Finalizar llamada?",
-            "¿Estás seguro de que deseas finalizar la llamada?",
-            [
-              { text: "No", style: "cancel" },
-              { text: "Sí", onPress: () => endCallFunction() },
-            ]
-          );
-          return true;
-        }
-        return false;
-      }
-    );
-    return () => backHandler.remove();
-  }, [callStatus, endCallFunction]);
 
   useEffect(() => {
     const initializeWebRTC = async () => {
@@ -537,6 +553,7 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
             </View>
           )}
           {renderCallControls()}
+          <AdminTrigger corner="topLeft" />
         </View>
       );
     } else {
@@ -571,6 +588,7 @@ const PorteroScreen: React.FC<PorteroScreenProps> = ({ navigation }) => {
               </TouchableOpacity>
             ))}
           </View>
+          <AdminTrigger corner="bottomRight" />
         </View>
       );
     }

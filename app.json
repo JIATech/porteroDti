@@ -34,7 +34,10 @@
         "android.permission.CHANGE_NETWORK_STATE",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "package": "com.j.arnaboldi.spb.porterodti"
+      "package": "com.j.arnaboldi.spb.porterodti",
+      "compileSdkVersion": 34,
+      "targetSdkVersion": 33,
+      "buildToolsVersion": "33.0.0"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -47,6 +50,7 @@
         }
       ]
     ],
+    "sdkVersion": "49.0.0",
     "extra": {
       "eas": {
         "projectId": "486f0d81-616e-4897-8913-4fa201cf8dda"

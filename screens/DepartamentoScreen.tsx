@@ -16,6 +16,8 @@ import { RouteProp } from "@react-navigation/native";
 import { Audio } from "expo-av";
 import { THEME } from "../utils/constants";
 import { socket } from "../services/socketService";
+import KioskMode from "../utils/KioskMode";
+import AdminTrigger from "../components/AdminTrigger";
 import {
   RTCPeerConnection,
   RTCIceCandidate,
@@ -73,6 +75,20 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({
   // Este ref guarda el identificador del portero que inicia la llamada
   const currentCaller = useRef<string | null>(null);
 
+  // Enable kiosk mode when component mounts
+  useEffect(() => {
+    // Enable kiosk mode
+    KioskMode.enable();
+    
+    // Add log entry
+    addLogEntry("Modo kiosco activado - Navegación bloqueada");
+
+    // Clean up function to disable kiosk mode when component unmounts
+    return () => {
+      KioskMode.disable();
+    };
+  }, []);
+
   // Configuración para trabajar en red local (sin ICE servers externos)
   const rtcConfiguration = {
     iceServers: [],
@@ -86,6 +102,30 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({
     const timestamp = new Date().toLocaleTimeString();
     setLogMessages((prev) => [`${timestamp}: ${message}`, ...prev]);
   }, []);
+
+  // Prevent going back with hardware button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        // If in a call, confirm before ending
+        if (callStatus === "connected") {
+          Alert.alert(
+            "¿Finalizar llamada?",
+            "¿Estás seguro de que deseas finalizar la llamada?",
+            [
+              { text: "No", style: "cancel" },
+              { text: "Sí", onPress: () => endCallFunction() },
+            ]
+          );
+          return true;
+        }
+        // In all other cases, prevent back button
+        return true;
+      }
+    );
+    return () => backHandler.remove();
+  }, [callStatus]);
 
   // Cargar sonido de notificación
   useEffect(() => {
@@ -194,28 +234,6 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({
       endCallFunction(false);
     };
   }, []);
-
-  // Manejo del botón de retroceso
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener(
-      "hardwareBackPress",
-      () => {
-        if (callStatus === "connected") {
-          Alert.alert(
-            "¿Finalizar llamada?",
-            "¿Estás seguro de que deseas finalizar la llamada?",
-            [
-              { text: "No", style: "cancel" },
-              { text: "Sí", onPress: () => endCallFunction() },
-            ]
-          );
-          return true;
-        }
-        return false;
-      }
-    );
-    return () => backHandler.remove();
-  }, [callStatus, endCallFunction]);
 
   // Función para crear la conexión WebRTC
   const createPeerConnection = useCallback(async (): Promise<boolean> => {
@@ -522,6 +540,7 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({
             </View>
           )}
           {renderCallControls()}
+          <AdminTrigger corner="topRight" />
         </View>
       );
     }
@@ -538,6 +557,7 @@ const DepartamentoScreen: React.FC<DepartamentoScreenProps> = ({
             ))}
           </ScrollView>
         </View>
+        <AdminTrigger corner="bottomLeft" />
       </View>
     );
   };

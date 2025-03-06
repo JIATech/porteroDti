@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StatusBar, View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { StatusBar, View, Text, StyleSheet, ActivityIndicator, BackHandler } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { registerRootComponent } from 'expo';
@@ -19,6 +19,16 @@ const App: React.FC = () => {
   const [connectionReady, setConnectionReady] = useState<boolean>(socket.connected);
   const [connecting, setConnecting] = useState<boolean>(!socket.connected);
   const [connectionAttempts, setConnectionAttempts] = useState<number>(0);
+
+  // Prevent app from being closed with back button from role selection screen
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Always prevent exiting the app
+      return true;
+    });
+    
+    return () => backHandler.remove();
+  }, []);
 
   // Handle socket connection
   useEffect(() => {
@@ -89,7 +99,9 @@ const App: React.FC = () => {
           headerTitleStyle: {
             fontWeight: 'bold',
           },
-          cardStyle: { backgroundColor: THEME.BACKGROUND_COLOR }
+          cardStyle: { backgroundColor: THEME.BACKGROUND_COLOR },
+          headerLeft: () => null, // Remove back button from all screens
+          gestureEnabled: false, // Disable swipe gestures for navigation
         }}
       >
         <Stack.Screen 
