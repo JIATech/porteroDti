@@ -1,6 +1,6 @@
 import { BackHandler, Platform, StatusBar, Alert } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as SecureStore from 'expo-secure-store';
 
 // Clave para almacenar el código de administrador
@@ -23,7 +23,7 @@ class KioskMode {
     await this.initAdminCode();
     
     // Prevent app from going to sleep
-    activateKeepAwake();
+    await activateKeepAwakeAsync();
     
     // Lock orientation to portrait
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
@@ -43,7 +43,7 @@ class KioskMode {
    */
   disable = async () => {
     // Allow app to sleep normally
-    deactivateKeepAwake();
+    await deactivateKeepAwake();
     
     // Unlock orientation
     await ScreenOrientation.unlockAsync();

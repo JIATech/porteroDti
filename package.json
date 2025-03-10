@@ -10,7 +10,10 @@
     "web": "expo start --web",
     "test": "jest --watchAll",
     "lint": "expo lint",
-    "eas": "eas build --profile development --platform android"
+    "eas": "eas build --profile development --platform android",
+    "patch-expo-modules": "node ./scripts/patch-expo-modules.js",
+    "prebuild": "npm run patch-expo-modules",
+    "predevelopment": "npm run patch-expo-modules"
   },
   "jest": {
     "preset": "jest-expo"
@@ -63,5 +66,10 @@
     "react-test-renderer": "18.3.1",
     "typescript": "^5.3.3"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "plugins": [
+      "./plugins/withJvmFix"
+    ]
+  }
 }

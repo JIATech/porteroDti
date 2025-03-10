@@ -15,20 +15,20 @@
       "env": {
         "ANDROID_KOTLIN_VERSION": "1.9.25"
       },
-      "prebuildCommand": "./eas-build-pre-install.sh"
+      "prebuildCommand": "node ./scripts/patch-gradle-imports.js && node ./scripts/eas-jvm-fix.js"
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "ANDROID_KOTLIN_VERSION": "1.9.25"
       },
-      "prebuildCommand": "./eas-build-pre-install.sh"
+      "prebuildCommand": "node ./scripts/patch-gradle-imports.js && node ./scripts/eas-jvm-fix.js"
     },
     "production": {
       "env": {
         "ANDROID_KOTLIN_VERSION": "1.9.25"
       },
-      "prebuildCommand": "./eas-build-pre-install.sh"
+      "prebuildCommand": "node ./scripts/patch-gradle-imports.js && node ./scripts/eas-jvm-fix.js"
     }
   },
   "submit": {

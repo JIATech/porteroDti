@@ -48,7 +48,8 @@
         {
           "cameraPermission": "La aplicación necesita acceso a la cámara para realizar videollamadas."
         }
-      ]
+      ],
+      "./plugins/withJvmFix"
     ],
     "extra": {
       "eas": {
