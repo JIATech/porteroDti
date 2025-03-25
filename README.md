@@ -1,3 +1,6 @@
+# DEPRECADO
+## Actualmente trabajando en una solución más completa.
+
 # Portero DTI
 
 ## Descripción
